@@ -1,11 +1,15 @@
-from sqlalchemy import Column, String, Boolean
+import uuid
+
+from sqlalchemy import Boolean
+from sqlalchemy import Column
+from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import UUID
+
 from db.session import Base
-import uuid 
+
 ##############################
 # BLOCK WITH DATABASE MODELS #
 ##############################
-
 
 
 class User(Base):

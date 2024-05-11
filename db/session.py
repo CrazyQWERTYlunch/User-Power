@@ -1,8 +1,15 @@
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 
-from config import DB_HOST, DB_NAME, DB_PASS, DB_PORT, DB_USER
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from config import DB_HOST
+from config import DB_NAME
+from config import DB_PASS
+from config import DB_PORT
+from config import DB_USER
 
 ##############################################
 # BLOCK FOR COMMON INTERACTION WITH DATABASE #
@@ -18,6 +25,7 @@ engine = create_async_engine(DATABASE_URL, future=True, echo=True)
 
 # create session for the interaction with database
 async_session_maker = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
