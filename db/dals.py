@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.models import PortalRole
 from db.models import User
 
 
@@ -20,11 +21,20 @@ class UserDAL:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
 
-    async def create_user(self, name: str, surname: str, email: str) -> User:
+    async def create_user(
+        self,
+        name: str,
+        surname: str,
+        email: str,
+        hashed_password: str,
+        roles: list[PortalRole],
+    ) -> User:
         new_user = User(
             name=name,
             surname=surname,
             email=email,
+            hashed_password=hashed_password,
+            roles=roles,
         )
         self.db_session.add(new_user)
         await self.db_session.flush()
@@ -42,7 +52,7 @@ class UserDAL:
         if deleted_user_id_row is not None:
             return deleted_user_id_row[0]
 
-    async def get_user_by_id(self, user_id: UUID) -> Union[UUID, None]:
+    async def get_user_by_id(self, user_id: UUID) -> Union[User, None]:
         query = select(User).where(User.user_id == user_id)
         res = await self.db_session.execute(query)
         user_row = res.fetchone()

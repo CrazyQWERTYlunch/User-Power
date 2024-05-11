@@ -1,92 +1,140 @@
-from typing import Union
+from logging import getLogger
 from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import DeleteUserResponse
-from api.models import ShowUser
-from api.models import UpdateUserRequest
-from api.models import UpdateUserResponse
-from api.models import UserCreate
-from db.dals import UserDAL
+from api.actions.auth import get_current_user_from_token
+from api.actions.user import _create_new_user
+from api.actions.user import _delete_user
+from api.actions.user import _get_user_by_id
+from api.actions.user import _update_user
+from api.actions.user import check_user_permissions
+from api.schemas import DeletedUserResponse
+from api.schemas import ShowUser
+from api.schemas import UpdatedUserRequest
+from api.schemas import UpdatedUserResponse
+from api.schemas import UserCreate
+from db.models import User
 from db.session import get_async_session
 
+logger = getLogger(__name__)
 
 user_router = APIRouter()
-
-
-async def _create_new_user(body: UserCreate, session: AsyncSession) -> ShowUser:
-    async with session.begin():
-        user_dal = UserDAL(session)
-        user = await user_dal.create_user(
-            name=body.name,
-            surname=body.surname,
-            email=body.email,
-        )
-        return ShowUser(
-            user_id=user.user_id,
-            name=user.name,
-            surname=user.surname,
-            email=user.email,
-            is_active=user.is_active,
-        )
-
-
-async def _delete_user(user_id, session: AsyncSession) -> Union[UUID, None]:
-    async with session.begin():
-        user_dal = UserDAL(session)
-        deleted_user_id = await user_dal.delete_user(user_id=user_id)
-        return deleted_user_id
-
-
-async def _update_user(
-    updated_user_params: dict, user_id: UUID, session
-) -> Union[UUID, None]:
-    async with session.begin():
-        user_dal = UserDAL(session)
-        updated_user_id = await user_dal.update_user(
-            user_id=user_id, **updated_user_params
-        )
-        return updated_user_id
-
-
-async def _get_user_by_id(user_id, session: AsyncSession) -> Union[ShowUser, None]:
-    async with session.begin():
-        user_dal = UserDAL(session)
-        user = await user_dal.get_user_by_id(user_id=user_id)
-        if user is not None:
-            return ShowUser(
-                user_id=user.user_id,
-                name=user.name,
-                surname=user.surname,
-                email=user.email,
-                is_active=user.is_active,
-            )
 
 
 @user_router.post("/", response_model=ShowUser)
 async def create_user(
     body: UserCreate, db: AsyncSession = Depends(get_async_session)
 ) -> ShowUser:
-    return await _create_new_user(body, db)
+    try:
+        return await _create_new_user(body, db)
+    except IntegrityError as err:
+        logger.error(err)
+        raise HTTPException(status_code=503, detail=f"Database error: {err}")
 
 
-@user_router.delete("/", response_model=DeleteUserResponse)
+@user_router.delete("/", response_model=DeletedUserResponse)
 async def delete_user(
-    user_id: UUID, session: AsyncSession = Depends(get_async_session)
-) -> DeleteUserResponse:
-    delete_user_id = await _delete_user(user_id, session)
-    if delete_user_id is None:
-        raise HTTPException(status_code=404, detail=f"User with id {user_id} not found")
-    return DeleteUserResponse(deleted_user_id=delete_user_id)
+    user_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user_from_token),
+) -> DeletedUserResponse:
+    user_for_deletion = await _get_user_by_id(user_id, db)
+    if user_for_deletion is None:
+        raise HTTPException(
+            status_code=404, detail=f"User with id {user_id} not found."
+        )
+    if not check_user_permissions(
+        target_user=user_for_deletion,
+        current_user=current_user,
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden.")
+    deleted_user_id = await _delete_user(user_id, db)
+    if deleted_user_id is None:
+        raise HTTPException(
+            status_code=404, detail=f"User with id {user_id} not found."
+        )
+    return DeletedUserResponse(deleted_user_id=deleted_user_id)
+
+
+@user_router.patch("/admin_privilege", response_model=UpdatedUserResponse)
+async def grant_admin_privilege(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    if not current_user.is_superadmin:
+        raise HTTPException(status_code=403, detail="Forbidden.")
+    if current_user.user_id == user_id:
+        raise HTTPException(
+            status_code=400, detail="Cannot manage privileges of itself."
+        )
+    user_for_promotion = await _get_user_by_id(user_id, db)
+    if user_for_promotion.is_admin or user_for_promotion.is_superadmin:
+        raise HTTPException(
+            status_code=409,
+            detail=f"User with id {user_id} already promoted to admin / superadmin.",
+        )
+    if user_for_promotion is None:
+        raise HTTPException(
+            status_code=404, detail=f"User with id {user_id} not found."
+        )
+    updated_user_params = {
+        "roles": user_for_promotion.enrich_admin_roles_by_admin_role()
+    }
+    try:
+        updated_user_id = await _update_user(
+            updated_user_params=updated_user_params, session=db, user_id=user_id
+        )
+    except IntegrityError as err:
+        logger.error(err)
+        raise HTTPException(status_code=503, detail=f"Database error: {err}")
+    return UpdatedUserResponse(updated_user_id=updated_user_id)
+
+
+@user_router.delete("/admin_privilege", response_model=UpdatedUserResponse)
+async def revoke_admin_privilege(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user_from_token),
+):
+    if not current_user.is_superadmin:
+        raise HTTPException(status_code=403, detail="Forbidden.")
+    if current_user.user_id == user_id:
+        raise HTTPException(
+            status_code=400, detail="Cannot manage privileges of itself."
+        )
+    user_for_revoke_admin_privileges = await _get_user_by_id(user_id, db)
+    if not user_for_revoke_admin_privileges.is_admin:
+        raise HTTPException(
+            status_code=409, detail=f"User with id {user_id} has no admin privileges."
+        )
+    if user_for_revoke_admin_privileges is None:
+        raise HTTPException(
+            status_code=404, detail=f"User with id {user_id} not found."
+        )
+    updated_user_params = {
+        "roles": user_for_revoke_admin_privileges.remove_admin_privileges_from_model()
+    }
+    try:
+        updated_user_id = await _update_user(
+            updated_user_params=updated_user_params, session=db, user_id=user_id
+        )
+    except IntegrityError as err:
+        logger.error(err)
+        raise HTTPException(status_code=503, detail=f"Database error: {err}")
+    return UpdatedUserResponse(updated_user_id=updated_user_id)
 
 
 @user_router.get("/", response_model=ShowUser)
 async def get_user_by_id(
-    user_id: UUID, session: AsyncSession = Depends(get_async_session)
+    user_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+    # current_user: User = Depends(get_current_user_from_token)
 ) -> ShowUser:
     user = await _get_user_by_id(user_id, session)
     if user is None:
@@ -94,22 +142,32 @@ async def get_user_by_id(
     return user
 
 
-@user_router.patch("/", response_model=UpdateUserResponse)
+@user_router.patch("/", response_model=UpdatedUserResponse)
 async def update_user_by_id(
     user_id: UUID,
-    body: UpdateUserRequest,
+    body: UpdatedUserRequest,
     session: AsyncSession = Depends(get_async_session),
-) -> UpdateUserResponse:
+    current_user: User = Depends(get_current_user_from_token),
+) -> UpdatedUserResponse:
     updated_users_params = body.model_dump(exclude_none=True)
     if updated_users_params == {}:
         raise HTTPException(
             status_code=422,
             detail="At least one parameter for user update info should be provided",
         )
-    user = await _get_user_by_id(user_id, session)
-    if user is None:
+    user_for_update = await _get_user_by_id(user_id, session)
+    if user_for_update is None:
         raise HTTPException(status_code=404, detail=f"User with id {user_id} not found")
-    updated_user_id = await _update_user(
-        updated_user_params=updated_users_params, user_id=user_id, session=session
-    )
-    return UpdateUserResponse(updated_user_id=updated_user_id)
+
+    if not check_user_permissions(
+        target_user=user_for_update, current_user=current_user
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden.")
+
+    try:
+        updated_user_id = await _update_user(
+            updated_user_params=updated_users_params, user_id=user_id, session=session
+        )
+    except IntegrityError as err:
+        logger.error(err)
+    return UpdatedUserResponse(updated_user_id=updated_user_id)
