@@ -1,3 +1,12 @@
+"""
+login_handlers.py
+
+This module provides endpoints related to user authentication, such as generating access tokens.
+
+Endpoints:
+    - `/token`: HTTP POST method to generate an access token for user authentication.
+
+"""
 from datetime import timedelta
 
 from fastapi import APIRouter
@@ -13,8 +22,6 @@ from api.schemas import Token
 from db.session import get_async_session
 from security import create_access_token
 
-# from api.actions.auth import  get_current_user_from_token
-
 
 login_router = APIRouter()
 
@@ -24,6 +31,19 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_async_session),
 ):
+    """
+    Endpoint to generate access token for user authentication.
+
+    Parameters:
+        form_data (OAuth2PasswordRequestForm): Form data containing username and password.
+        session (AsyncSession, optional): The async database session.
+
+    Returns:
+        Token: The generated access token.
+
+    Raises:
+        HTTPException: If the username or password is incorrect.
+    """
     user = await authenticate_user(form_data.username, form_data.password, session)
     if not user:
         raise HTTPException(

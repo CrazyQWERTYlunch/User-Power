@@ -1,3 +1,8 @@
+"""
+user.py
+
+This module provides functions for user management in the Education-app API.
+"""
 from typing import Union
 from uuid import UUID
 
@@ -13,6 +18,16 @@ from hashing import Hasher
 
 
 async def _create_new_user(body: UserCreate, session: AsyncSession) -> ShowUser:
+    """
+    Create a new user.
+
+    Args:
+        body (UserCreate): UserCreate schema containing user information.
+        session (AsyncSession): AsyncSession instance for database interaction.
+
+    Returns:
+        ShowUser: ShowUser schema representing the newly created user.
+    """
     async with session.begin():
         user_dal = UserDAL(session)
         user = await user_dal.create_user(
@@ -34,6 +49,16 @@ async def _create_new_user(body: UserCreate, session: AsyncSession) -> ShowUser:
 
 
 async def _delete_user(user_id, session: AsyncSession) -> Union[UUID, None]:
+    """
+    Delete a user.
+
+    Args:
+        user_id (UUID): The ID of the user to delete.
+        session (AsyncSession): AsyncSession instance for database interaction.
+
+    Returns:
+        Union[UUID, None]: The ID of the deleted user, or None if the user was not found.
+    """
     async with session.begin():
         user_dal = UserDAL(session)
         deleted_user_id = await user_dal.delete_user(user_id=user_id)
@@ -43,6 +68,17 @@ async def _delete_user(user_id, session: AsyncSession) -> Union[UUID, None]:
 async def _update_user(
     updated_user_params: dict, user_id: UUID, session
 ) -> Union[UUID, None]:
+    """
+    Update a user.
+
+    Args:
+        updated_user_params (dict): Dictionary containing updated user parameters.
+        user_id (UUID): The ID of the user to update.
+        session (AsyncSession): AsyncSession instance for database interaction.
+
+    Returns:
+        Union[UUID, None]: The ID of the updated user, or None if the user was not found.
+    """
     async with session.begin():
         user_dal = UserDAL(session)
         updated_user_id = await user_dal.update_user(
@@ -52,6 +88,16 @@ async def _update_user(
 
 
 async def _get_user_by_id(user_id, session) -> Union[User, None]:
+    """
+    Get a user by ID.
+
+    Args:
+        user_id (UUID): The ID of the user to retrieve.
+        session (AsyncSession): AsyncSession instance for database interaction.
+
+    Returns:
+        Union[User, None]: The user object if found, otherwise None.
+    """
     async with session.begin():
         user_dal = UserDAL(session)
         user = await user_dal.get_user_by_id(
@@ -62,6 +108,16 @@ async def _get_user_by_id(user_id, session) -> Union[User, None]:
 
 
 def check_user_permissions(target_user: User, current_user: User) -> bool:
+    """
+    Check user permissions for specific operations.
+
+    Args:
+        target_user (User): The user for which permissions are being checked.
+        current_user (User): The current user performing the operation.
+
+    Returns:
+        bool: True if the current user has permission, False otherwise.
+    """
     if PortalRole.ROLE_PORTAL_SUPERADMIN in current_user.roles:
         raise HTTPException(
             status_code=406, detail="Superadmin cannot be deleted via API."

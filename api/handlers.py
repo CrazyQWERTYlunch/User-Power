@@ -1,3 +1,8 @@
+"""
+handlers.py
+
+This module provides API handlers for user-related endpoints in the Education-app API.
+"""
 from logging import getLogger
 from uuid import UUID
 
@@ -28,10 +33,23 @@ user_router = APIRouter()
 
 @user_router.post("/", response_model=ShowUser)
 async def create_user(
-    body: UserCreate, db: AsyncSession = Depends(get_async_session)
+    body: UserCreate, session: AsyncSession = Depends(get_async_session)
 ) -> ShowUser:
+    """
+    Create a new user.
+
+    Args:
+        body (UserCreate): The data of the user to be created.
+        session (AsyncSession): The async database session.
+
+    Returns:
+        ShowUser: The created user data.
+
+    Raises:
+        HTTPException: If a database error occurs.
+    """
     try:
-        return await _create_new_user(body, db)
+        return await _create_new_user(body, session)
     except IntegrityError as err:
         logger.error(err)
         raise HTTPException(status_code=503, detail=f"Database error: {err}")
@@ -40,10 +58,24 @@ async def create_user(
 @user_router.delete("/", response_model=DeletedUserResponse)
 async def delete_user(
     user_id: UUID,
-    db: AsyncSession = Depends(get_async_session),
+    session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user_from_token),
 ) -> DeletedUserResponse:
-    user_for_deletion = await _get_user_by_id(user_id, db)
+    """
+    Delete a user.
+
+    Args:
+        user_id (UUID): The ID of the user to be deleted.
+        session (AsyncSession): The async database session.
+        current_user (User): The current authenticated user.
+
+    Returns:
+        DeletedUserResponse: The response indicating the deleted user ID.
+
+    Raises:
+        HTTPException: If the user to be deleted is not found or if the current user doesn't have permissions.
+    """
+    user_for_deletion = await _get_user_by_id(user_id, session)
     if user_for_deletion is None:
         raise HTTPException(
             status_code=404, detail=f"User with id {user_id} not found."
@@ -53,7 +85,7 @@ async def delete_user(
         current_user=current_user,
     ):
         raise HTTPException(status_code=403, detail="Forbidden.")
-    deleted_user_id = await _delete_user(user_id, db)
+    deleted_user_id = await _delete_user(user_id, session)
     if deleted_user_id is None:
         raise HTTPException(
             status_code=404, detail=f"User with id {user_id} not found."
@@ -67,6 +99,22 @@ async def grant_admin_privilege(
     db: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user_from_token),
 ):
+    """
+    Grant admin privilege to a user.
+
+    Parameters:
+        user_id (UUID): The ID of the user to grant admin privilege.
+        db (AsyncSession, optional): The async database session.
+        current_user (User, optional): The current authenticated user.
+
+    Returns:
+        UpdatedUserResponse: The response indicating the updated user ID.
+
+    Raises:
+        HTTPException: If the current user is not a superadmin, if trying to manage its own privileges,
+                       if the user to be promoted already has admin or superadmin privileges,
+                       if the user to be promoted is not found, or if a database error occurs.
+    """
     if not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Forbidden.")
     if current_user.user_id == user_id:
@@ -99,16 +147,32 @@ async def grant_admin_privilege(
 @user_router.delete("/admin_privilege", response_model=UpdatedUserResponse)
 async def revoke_admin_privilege(
     user_id: UUID,
-    db: AsyncSession = Depends(get_async_session),
+    session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user_from_token),
 ):
+    """
+    Revoke admin privilege from a user.
+
+    Parameters:
+        user_id (UUID): The ID of the user to revoke admin privilege.
+        session (AsyncSession, optional): The async database session.
+        current_user (User, optional): The current authenticated user.
+
+    Returns:
+        UpdatedUserResponse: The response indicating the updated user ID.
+
+    Raises:
+        HTTPException: If the current user is not a superadmin, if trying to manage its own privileges,
+                       if the user to revoke admin privileges from is not an admin,
+                       if the user to revoke admin privileges from is not found, or if a database error occurs.
+    """
     if not current_user.is_superadmin:
         raise HTTPException(status_code=403, detail="Forbidden.")
     if current_user.user_id == user_id:
         raise HTTPException(
             status_code=400, detail="Cannot manage privileges of itself."
         )
-    user_for_revoke_admin_privileges = await _get_user_by_id(user_id, db)
+    user_for_revoke_admin_privileges = await _get_user_by_id(user_id, session)
     if not user_for_revoke_admin_privileges.is_admin:
         raise HTTPException(
             status_code=409, detail=f"User with id {user_id} has no admin privileges."
@@ -122,7 +186,7 @@ async def revoke_admin_privilege(
     }
     try:
         updated_user_id = await _update_user(
-            updated_user_params=updated_user_params, session=db, user_id=user_id
+            updated_user_params=updated_user_params, session=session, user_id=user_id
         )
     except IntegrityError as err:
         logger.error(err)
@@ -136,6 +200,19 @@ async def get_user_by_id(
     session: AsyncSession = Depends(get_async_session),
     # current_user: User = Depends(get_current_user_from_token)
 ) -> ShowUser:
+    """
+    Retrieve user information by user ID.
+
+    Parameters:
+        user_id (UUID): The ID of the user to retrieve information.
+        session (AsyncSession, optional): The async database session.
+
+    Returns:
+        ShowUser: The user information.
+
+    Raises:
+        HTTPException: If the user with the provided ID is not found.
+    """
     user = await _get_user_by_id(user_id, session)
     if user is None:
         raise HTTPException(status_code=404, detail=f"User with id {user_id} not found")
@@ -149,6 +226,22 @@ async def update_user_by_id(
     session: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(get_current_user_from_token),
 ) -> UpdatedUserResponse:
+    """
+    Update user information by user ID.
+
+    Parameters:
+        user_id (UUID): The ID of the user to update information.
+        body (UpdatedUserRequest): The updated user information.
+        session (AsyncSession, optional): The async database session.
+        current_user (User, optional): The current authenticated user.
+
+    Returns:
+        UpdatedUserResponse: The response indicating the updated user ID.
+
+    Raises:
+        HTTPException: If no parameter for user update info is provided, if the user with the provided ID is not found,
+                       if the current user doesn't have permissions, or if a database error occurs.
+    """
     updated_users_params = body.model_dump(exclude_none=True)
     if updated_users_params == {}:
         raise HTTPException(
