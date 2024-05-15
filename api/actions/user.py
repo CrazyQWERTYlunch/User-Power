@@ -118,7 +118,7 @@ def check_user_permissions(target_user: User, current_user: User) -> bool:
     Returns:
         bool: True if the current user has permission, False otherwise.
     """
-    if PortalRole.ROLE_PORTAL_SUPERADMIN in current_user.roles:
+    if PortalRole.ROLE_PORTAL_SUPERADMIN in target_user.roles:
         raise HTTPException(
             status_code=406, detail="Superadmin cannot be deleted via API."
         )

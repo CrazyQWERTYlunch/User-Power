@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
 import config
+from db.dals import UserDAL
 from db.models import User
 from db.session import get_async_session
 from hashing import Hasher
@@ -32,6 +33,11 @@ async def _get_user_by_email_for_auth(email: str, session: AsyncSession):
     Returns:
         User: The user object if found, otherwise None.
     """
+    async with session.begin():
+        user_dal = UserDAL(session)
+        return await user_dal.get_user_by_email(
+            email=email,
+        )
 
 
 async def authenticate_user(

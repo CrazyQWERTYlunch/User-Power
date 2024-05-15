@@ -1,7 +1,7 @@
 """
 main.py
 
-This script serves as the entry point for the Education-app FastAPI application.
+This script serves as the entry point for the User Power FastAPI application.
 
 It initializes the FastAPI instance, sets up the main API router, includes various
 sub-routers for handling different endpoints, and runs the FastAPI application using
